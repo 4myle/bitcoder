@@ -33,13 +33,13 @@ impl Widget for Switch
         }
         if ui.is_rect_visible(area) {
             let easing  = ui.ctx().animate_bool_responsive(response.id, self.state);
-            let area    = area.expand(ui.style().interact_selectable(&response, self.state).expansion);
-            let radius  = 0.5 * area.height();
             let visuals = ui.style().interact_selectable(&response, self.state);
+            let area    = area.expand(visuals.expansion);
+            let radius  = 0.5 * area.height();
             ui.painter().rect(area, radius, visuals.bg_fill, visuals.bg_stroke, egui::StrokeKind::Outside); // Paint "slider" beneath.
             let circle  = egui::lerp((area.left() + radius - 2.0)..=(area.right() - radius), easing);
             let center  = egui::pos2(circle, area.center().y);
-            ui.painter().circle(center, 0.8 * radius, visuals.weak_bg_fill, visuals.fg_stroke); // Paint "knob" above.
+            ui.painter().circle(center, 0.8 * radius, visuals.bg_fill, visuals.fg_stroke); // Paint "knob" above.
         }
         response
     }

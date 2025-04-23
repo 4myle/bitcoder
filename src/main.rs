@@ -15,6 +15,7 @@ mod models;
 use crate::models::variable::Variable;
 use crate::models::decoder::Decoder;
 use crate::models::encoder::Encoder;
+use crate::models::parser::Parser;
 
 const WINDOW_SIZE:  egui::Vec2 = egui::Vec2::new(640.0, 480.0);
 const ACCENT_COLOR: egui::Color32 = egui::Color32::from_rgb(204, 136, 0); // HSL(40,100,40)
@@ -32,6 +33,25 @@ enum StateTracker
     Dragging, // While dragging is progress.
     Saving,   // While saving is in progress.
     #[default] Idle
+}
+
+#[derive(Default)]
+struct Card 
+{
+    template: String,
+    message: String,
+    is_included: bool,
+    is_numeric: bool
+}
+
+impl Card 
+{
+    fn new() -> Self {
+        Self {
+            is_included: true,
+            ..Default::default()
+        }
+    }
 }
 
 // Extract only message from an Result error by adding a new trait to Result (go Rust!).
@@ -56,8 +76,7 @@ struct Bitcoder
 
     #[serde(skip)] variables: Vec<Variable>,
     #[serde(skip)] outcome: Variable,
-    #[serde(skip)] templates: Vec<String>,
-    #[serde(skip)] messages: Vec<String>,
+    #[serde(skip)] cards: Vec<Card>,
     #[serde(skip)] error: String,
     #[serde(skip)] path: String,
     #[serde(skip)] state: StateTracker
@@ -71,8 +90,7 @@ impl Default for Bitcoder
             ui_mode: InterfaceMode::Dark,
             variables: Vec::new(),
             outcome: Variable::default(),
-            templates: Vec::new(),
-            messages: Vec::new(),
+            cards: Vec::new(),
             error: String::new(),
             path: String::new(),
             state: StateTracker::Idle
@@ -133,13 +151,15 @@ impl Bitcoder
                 visuals.override_text_color = Some(egui::Color32::BLACK);
             }
         }
+        visuals.widgets.inactive.fg_stroke = egui::Stroke::new(2.0, ACCENT_COLOR);
+        visuals.widgets.inactive.bg_fill = ACCENT_COLOR.gamma_multiply(0.20);
         visuals.widgets.active.bg_fill = ACCENT_COLOR;
         visuals.widgets.noninteractive.bg_fill = ACCENT_COLOR;
         visuals.widgets.noninteractive.bg_stroke = egui::Stroke::new(1.0, ACCENT_COLOR.gamma_multiply(0.25));
         visuals.widgets.hovered.bg_fill = ACCENT_COLOR;
         visuals.selection.stroke.color  = ACCENT_COLOR; 
-        visuals.selection.bg_fill = ACCENT_COLOR.gamma_multiply(0.35);
-        visuals.slider_trailing_fill = true;
+        visuals.selection.bg_fill = ACCENT_COLOR.gamma_multiply(0.30);
+        // visuals.slider_trailing_fill = true;
         context.style_mut(|style| {
             style.spacing.item_spacing = egui::Vec2::new(12.0, 8.0);
             style.spacing.button_padding = egui::Vec2::new(8.0, 2.0);
@@ -168,12 +188,75 @@ impl Bitcoder
             .stroke(egui::Stroke::new(2.0, ACCENT_COLOR.gamma_multiply(0.2)))
     }
 
+    fn ui_card (&mut self, ui: &mut egui::Ui, index: usize) {
+        self.get_card_frame().show(ui, |ui| {
+            let variable = &mut self.variables[index];
+            ui.label(egui::RichText::new(format!("{} {}", if self.cards[index].is_numeric {"\u{e9ef}"} else {"\u{eb94}"}, variable.name())).heading());
+            ui.separator();
+            ui.horizontal(|ui| {
+                ui.vertical(|ui| {
+                    if ui.checkbox(&mut self.cards[index].is_included, "Include this").changed() {
+                        println!("Clicked Include this");
+                    }
+                    if ui.checkbox(&mut self.cards[index].is_numeric, "As numeric").changed() {
+                        if self.cards[index].is_numeric {
+                            variable.as_numbers();
+                        } else {
+                            variable.as_strings();
+                        }
+                    }
+                });
+                ui.add_space(24.0);
+                ui.with_layout(egui::Layout::top_down_justified(egui::Align::LEFT), |ui| {
+                    let card = &mut self.cards[index];
+                    if ui.radio(true, "Recode all unique values").clicked() {
+                        println!("Clicked Recode");
+                    }
+                    if ui.radio(false, "Use expression below to categorize:").clicked() {
+                        println!("Clicked Categorize");
+                    }
+                    if ui.add(ErrorField::new(&mut card.template, card.message.is_empty())).changed() {
+                        match Parser::parse(&card.template) {
+                            Err(m) => {
+                                card.message = m;
+                            },
+                            Ok (t) => {
+                                variable.set_expression(&t);
+                                card.message.clear();
+                            }
+                        }
+                    }
+                    if !card.message.is_empty() {
+                        ui.label(egui::RichText::new(&self.cards[index].message).color(egui::Color32::RED));
+                    }
+                });
+            });
+            ui.separator();
+            ui.label(format!("Results in 893 variables from 1014 values ({} missing). Ranges from {} to {}", 
+                variable.missing(), 
+                variable.minimum(), 
+                variable.maximum())
+            );
+        });
+    }
+
+    fn ui_list (&mut self, ui: &mut egui::Ui) {
+        let count = self.variables.len();
+        if  count > 0 {
+            egui::ScrollArea::vertical().show(ui, |ui| {
+                for index in 0..count {
+                    self.ui_card(ui, index);
+                };
+            });
+        }
+    }
+
     fn ui_outcome (&mut self, ui: &mut egui::Ui, context: &egui::Context) {
         ui.vertical(|ui| {
             // ui.spacing_mut().item_spacing.y = 0.0;
             ui.label(egui::RichText::new("OUTCOME VARIABLE:").small().weak());
             ui.label(egui::RichText::new(self.outcome.name()).heading().color(ACCENT_COLOR));
-            ui.label(format!("2953 variables will be created. Outcome ranges from {}", self.outcome.range()));
+            ui.label(format!("2953 variables will be created. Outcome ranges from {} to {}", self.outcome.minimum(), self.outcome.maximum()));
         });
         ui.add_space(12.0);
         ui.horizontal(|ui| {
@@ -224,52 +307,11 @@ impl Bitcoder
         });
     }
 
-    fn ui_card (&mut self, ui: &mut egui::Ui, index: usize) {
-        self.get_card_frame().show(ui, |ui| {
-            let variable = &self.variables[index];
-            ui.label(egui::RichText::new(variable.name()).heading());
-            ui.separator();
-            ui.horizontal(|ui| {
-                ui.vertical(|ui| {
-                    let mut tmp = false;
-                    ui.checkbox(&mut tmp, "Include this");
-                    ui.checkbox(&mut tmp, "As numeric");
-                });
-                ui.add_space(24.0);
-                ui.with_layout(egui::Layout::top_down_justified(egui::Align::LEFT), |ui| {
-                    ui.radio(true, "Recode all unique values");
-                    ui.radio(true, "Use expression below to categorize:");
-                    if ui.add(ErrorField::new(&mut self.templates[index], self.messages[index].is_empty())).changed() {
-                        self.messages[index] = String::from("TEST"); //TODO: Use Parser
-                    }
-                    if !self.messages[index].is_empty() {
-                        ui.label(egui::RichText::new(&self.messages[index]).color(egui::Color32::RED));
-                    }
-                });
-            });
-            ui.separator();
-            ui.label(format!("Results in 893 variables from 1014 values (215 missing). Ranges from {}.", variable.range()));
-        });
-    }
-
-    fn ui_list (&mut self, ui: &mut egui::Ui) {
-        let count = self.variables.len();
-        if  count > 0 {
-            egui::ScrollArea::vertical().show(ui, |ui| {
-                for index in 0..count {
-                    self.ui_card(ui, index);
-                };
-            });
-        }
-    }
-
     fn load_file (&mut self) {
         self.error = Decoder::load(self.path.as_str(), &mut self.variables).as_message();
-        self.templates = Vec::with_capacity(self.variables.len()); // One template string and one ...
-        self.messages  = Vec::with_capacity(self.variables.len()); // error message per variable in the UI.
+        self.cards = Vec::with_capacity(self.variables.len());
         self.variables.iter().for_each(|_| {
-            self.templates.push(String::new());
-            self.messages. push(String::new());
+            self.cards.push(Card::new());
         });
         // Last variable is always the outcome variable.
         if let Some(variable) = self.variables.pop() {
@@ -306,7 +348,7 @@ impl App for Bitcoder
                 egui::Modal::new(egui::Id::new("Dialog")).frame(self.get_main_frame()).show(ui.ctx(), |ui| {
                     ui.set_width(200.0);
                     ui.style_mut().spacing.item_spacing = egui::Vec2::new(18.0, 12.0);
-                    ui.label(egui::RichText::new("Oh no! An error has occured!").color(ACCENT_COLOR).weak());
+                    ui.label(egui::RichText::new("Oh no! An error occured!").color(ACCENT_COLOR).weak());
                     ui.label(egui::RichText::new(&self.error).strong());
                     if ui.button("Ok").clicked() {
                         self.error.clear();
@@ -345,6 +387,7 @@ impl App for Bitcoder
 }
 
 fn main() -> eframe::Result {
+    // println!("{:#?}", Parser::parse(r#""A" to C, "D" to "E", "F" to max"#));
     eframe::run_native(
         "Bitcoder", 
         eframe::NativeOptions {
