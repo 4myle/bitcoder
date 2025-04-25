@@ -217,12 +217,12 @@ impl Bitcoder
                     }
                     if ui.add(ErrorField::new(&mut card.template, card.message.is_empty())).changed() {
                         match Parser::parse(&card.template) {
-                            Err(m) => {
-                                card.message = m;
-                            },
+                            Err(m) => card.message = m,
                             Ok (t) => {
-                                variable.set_expression(&t);
-                                card.message.clear();
+                                match variable.set_expression(&t) {
+                                    Ok (()) => card.message.clear(),
+                                    Err(m)  => card.message = m.to_string()
+                                }
                             }
                         }
                     }

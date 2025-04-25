@@ -64,7 +64,6 @@ impl Parser
                         }
                         _ => {
                             if text.starts_with('@') { // A quoted string.
-                                // text.remove(0);
                                 tokens.push(Token::String { value: text.strip_prefix('@').unwrap_or_default().to_string() });
                                 expect = State::StringRange;
                                 continue;
@@ -89,7 +88,7 @@ impl Parser
                             };
                         }
                         _ => {
-                            return Err(String::from("Separate range values with keyword 'to'."))
+                            return Err(String::from("Separate range values with keyword ' to '."))
                         }
                     }
                 },

@@ -1,7 +1,7 @@
 /*
     Represents a variable, holding a vector of data points as either a strings, f32s or "missing".
 */
-
+ 
 use crate::models::parser::Token;
 
 use std::cmp::Ordering;
@@ -10,7 +10,7 @@ use std::fmt:: {
     Formatter
 };
 
-#[derive(Default, PartialEq, Clone)]
+#[derive(Debug, Default, PartialEq, Clone)]
 pub enum Value 
 {
     String { string: String },
@@ -90,14 +90,14 @@ impl Value
 
 }
 
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct Range 
 {
     lower: Value, 
     upper: Value
 }
 
-#[derive(Default)]
+#[derive(Debug, Default)]
 enum Mapping 
 {
     Cluster {clusters: Vec<Range>},
@@ -114,7 +114,8 @@ pub struct Variable
     missing: usize,
     minimum: Value,
     maximum: Value,
-    mapping: Mapping
+    mapping: Mapping,
+    is_numeric: bool
 }
 
 impl Variable
@@ -128,65 +129,90 @@ impl Variable
             minimum: Value::None,
             maximum: Value::None,
             mapping: Mapping::default(),
+            is_numeric: false
+        }
+    }
+
+    pub fn set_expression (&mut self, tokens: &[Token]) -> Result<(), &'static str> {
+        let mut ranges = Vec::<Range>::new();
+        let mut tokens = tokens.iter();
+        self.mapping = Mapping::Cluster {clusters: Vec::new()};
+        loop {
+            let mut range = Range::default();
+            let value1st = tokens.next();
+            let operator = tokens.next();
+            let value2nd = tokens.next();
+            if  value1st.is_none() {
+                break;
+            }
+            match value1st {
+                Some(Token::Number { value }) => range.lower = Value::Number { number: *value },
+                Some(Token::String { value }) => range.lower = Value::String { string: value.as_str().to_string() },
+                _ => return Err("Type a value for the lower range.")
+            }
+            if operator.is_none() || operator != Some(&Token::Range) {
+                return Err("Separate range values with keyword ' to '.")
+            }
+            match value2nd {
+                Some(Token::Number { value }) => range.upper = Value::Number { number: *value },
+                Some(Token::String { value }) => range.upper = Value::String { string: value.as_str().to_string() },
+                _ => return Err("Type a value for the upper range.")
+            }
+            // println!("{range:?}");
+            ranges.push(range);
+        }
+        println!("{ranges:?}");
+        let all_numbers = ranges.iter().all(|r| matches!(r.lower, Value::Number{..}) && matches!(r.upper, Value::Number{..}));
+        let all_strings = ranges.iter().all(|r| matches!(r.lower, Value::String{..}) && matches!(r.upper, Value::String{..}));
+        if self.is_numeric && !all_numbers || !self.is_numeric && !all_strings {
+            return Err("All values must be of the same type and must match the variable type.")
+        }
+        self.mapping = Mapping::Cluster { clusters: ranges };
+        Ok(())
+    }
+
+    // Associated function instead of "method" to avoid (unsolvable?) borrow checker issues with self. 
+    fn set_residuals (value: &Value, missing: &mut usize, minimum: &mut Value, maximum: &mut Value) {
+        if *value == Value::None {
+            *missing += 1;
+        }
+        if  *minimum == Value::None || *minimum > *value {
+            *minimum = value.clone();
+        }
+        if  *maximum == Value::None || *maximum < *value {
+            *maximum = value.clone();
         }
     }
 
     pub fn add_value (&mut self, value: &str) {
         self.values.push(Value::new(value));
         if let Some(value) = self.values.last() {
-            if *value == Value::None {
-                self.missing += 1;
-            }
-            if  self.minimum == Value::None || self.minimum > *value {
-                self.minimum = value.clone();
-            }
-            if  self.maximum == Value::None || self.maximum < *value {
-                self.maximum = value.clone();
-            }
+            Variable::set_residuals(value, &mut self.missing, &mut self.minimum, &mut self.maximum);
         }
     }
 
-    pub fn set_expression(&mut self, tokens: &Vec<Token>) { //TODO: return Result<(), &static str>?
-        self.mapping = Mapping::Recode;
-        println!("{tokens:?}");
-    }
-
     pub fn as_numbers (&mut self) {
+        self.is_numeric = true;
         self.backup = self.values.clone();
         self.minimum = Value::None;
         self.maximum = Value::None;
         self.missing = 0;
-        self.values.iter_mut().for_each(|value| {
+        for value in &mut self.values {
             value.as_number();
-            if *value == Value::None {
-                self.missing += 1;
-            }
-            if  self.minimum == Value::None || self.minimum > *value {
-                self.minimum = value.clone();
-            }
-            if  self.maximum == Value::None || self.maximum < *value {
-                self.maximum = value.clone();
-            }
-        });
+            Variable::set_residuals(value, &mut self.missing, &mut self.minimum, &mut self.maximum);
+        }
     }
 
     pub fn as_strings (&mut self) {
+        self.is_numeric = false;
         self.values = self.backup.clone();
         self.backup.clear();
         self.minimum = Value::None;
         self.maximum = Value::None;
         self.missing = 0;
-        self.values.iter_mut().for_each(|value| {
-            if *value == Value::None {
-                self.missing += 1;
-            }
-            if  self.minimum == Value::None || self.minimum > *value {
-                self.minimum = value.clone();
-            }
-            if  self.maximum == Value::None || self.maximum < *value {
-                self.maximum = value.clone();
-            }
-        });
+        for value in &mut self.values {
+            Variable::set_residuals(value, &mut self.missing, &mut self.minimum, &mut self.maximum);
+        }
     }
 
     pub fn name (&self) -> &str {
