@@ -19,9 +19,12 @@
 
 */
 
-use std::str::Chars;
+use std::{
+    iter::Peekable, 
+    str::Chars
+};
 
-#[derive(Debug, PartialEq)]
+#[derive(PartialEq)]
 enum State 
 {
     MinimumOrValue,
@@ -30,10 +33,11 @@ enum State
     NumberRange,
     MaximumOrValue,
     MaximumOrString,
-    MaximumOrNumber
+    MaximumOrNumber,
+    Delimiter
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(PartialEq)]
 pub enum Token
 {
     Minimum,
@@ -49,7 +53,7 @@ impl Parser
     // #[allow(clippy::too_many_lines)]
     pub fn parse (input: &str) -> Result<Vec<Token>, String> {
         let mut expect = State::MinimumOrValue;
-        let mut source = input.chars();
+        let mut source = input.chars().peekable();
         let mut tokens: Vec<Token> = Vec::new();
         while let Some(text) = Self::next(&mut source) {
             match expect {
@@ -96,7 +100,7 @@ impl Parser
                     match text.to_lowercase().as_str() {
                         "max" | "highest" | "high"  => { 
                             tokens.push(Token::Maximum);
-                            expect = State::MinimumOrValue;
+                            expect = State::Delimiter;
                         },
                         "min" | "lowest" | "low" | "to" => {
                             return Err(format!("Unexpected keyword '{text}' (string, number or 'max' expected)."))
@@ -107,7 +111,7 @@ impl Parser
                                     return Err(String::from("Both lower and upper range must be strings."))
                                 }
                                 tokens.push(Token::String { value: text.strip_prefix('@').unwrap_or_default().to_string() });
-                                expect = State::MinimumOrValue;
+                                expect = State::Delimiter;
                                 continue;
                             }
                             if let Ok(number) = text.parse::<f32>() {
@@ -115,11 +119,17 @@ impl Parser
                                     return Err(String::from("Both lower and upper range must be valid numbers."))
                                 }
                                 tokens.push(Token::Number { value: number });
-                                expect = State::MinimumOrValue;
+                                expect = State::Delimiter;
                                 continue;
                             }
                             return Err(format!("Unexpected upper range value '{text}' (a string or a valid number expected)."))
                         }
+                    }
+                }
+                State::Delimiter => {
+                    match text.as_str() {
+                        "," => expect = State::MinimumOrValue, // Start over, parsing next expression.
+                         _  => return Err(format!("Unexpected text '{text}' (delimiter ',' expected)."))
                     }
                 }
             }
@@ -127,35 +137,49 @@ impl Parser
         Ok(tokens)
     }
 
-    pub fn next (input: &mut Chars<'_>) -> Option<String> {
+    pub fn next (input: &mut Peekable<Chars<'_>>) -> Option<String> {
         let mut quote = false; // If within quotation.
-        let mut value = String::new();
-        while let Some(character) = Iterator::next(input) {
+        let mut token = String::new();
+        while let Some(character) = input.next() {
             match character {
                 '"' => {
                     if quote {
-                        return Some(format!("@{value}")) // Always a string.
+                        quote = false;
+                        break;
                     }
+                    token.push('@'); // Always a string here.
                     quote = true; 
                 }
-                ' ' | ',' => {
+                ' ' => {
                     if quote { 
-                        value.push(character);
+                        token.push(character);
                         continue;
                     }
-                    if !value.is_empty() {
-                        return Some(value)
+                    if !token.is_empty() {
+                        break;
                     }
                 },
+                ',' => {
+                    token.push(character);
+                    if quote { 
+                        continue;
+                    }
+                    break;
+                },
                 _ => {
-                    value.push(character);
+                    token.push(character);
+                    if let Some(preview) = input.peek() {
+                        if *preview == ',' {
+                            break;
+                        }
+                    }
                 }
             }
         }
-        if value.is_empty() || quote { // Invalid if still in quotation.
+        if token.is_empty() || quote { // Invalid if still in quotation.
             return None 
         } 
-        Some(value)
+        Some(token)
     }
 
 }

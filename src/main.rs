@@ -117,7 +117,7 @@ impl Bitcoder
             .font_data
             .insert(
                 textfont.to_string(), 
-                std::sync::Arc::new(egui::FontData::from_static(include_bytes!("../assets/AtkinsonHyperlegibleNext-Regular.ttf")))
+                std::sync::Arc::new(egui::FontData::from_static(include_bytes!("../assets/Inter-Regular.ttf")))
             );
         fonts
             .font_data
@@ -260,7 +260,7 @@ impl Bitcoder
         });
         ui.add_space(12.0);
         ui.horizontal(|ui| {
-            let dragger = ui.button("\u{e074} Drag to export").interact(egui::Sense::click_and_drag()).highlight();
+            let dragger = ui.button("\u{e945} Drag to export").interact(egui::Sense::click_and_drag()).highlight();
             if  dragger.drag_started() {
                 self.state = StateTracker::Dragging;
             }
@@ -387,7 +387,6 @@ impl App for Bitcoder
 }
 
 fn main() -> eframe::Result {
-    // println!("{:#?}", Parser::parse(r#""A" to C, "D" to "E", "F" to max"#));
     eframe::run_native(
         "Bitcoder", 
         eframe::NativeOptions {

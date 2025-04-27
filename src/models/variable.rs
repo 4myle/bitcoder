@@ -10,7 +10,7 @@ use std::fmt:: {
     Formatter
 };
 
-#[derive(Debug, Default, PartialEq, Clone)]
+#[derive(Default, PartialEq, Clone)]
 pub enum Value 
 {
     String { string: String },
@@ -90,14 +90,14 @@ impl Value
 
 }
 
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub struct Range 
 {
     lower: Value, 
     upper: Value
 }
 
-#[derive(Debug, Default)]
+#[derive(Default)]
 enum Mapping 
 {
     Cluster {clusters: Vec<Range>},
@@ -148,6 +148,7 @@ impl Variable
             match value1st {
                 Some(Token::Number { value }) => range.lower = Value::Number { number: *value },
                 Some(Token::String { value }) => range.lower = Value::String { string: value.as_str().to_string() },
+                Some(Token::Minimum) => range.lower = self.minimum.clone(),
                 _ => return Err("Type a value for the lower range.")
             }
             if operator.is_none() || operator != Some(&Token::Range) {
@@ -156,12 +157,11 @@ impl Variable
             match value2nd {
                 Some(Token::Number { value }) => range.upper = Value::Number { number: *value },
                 Some(Token::String { value }) => range.upper = Value::String { string: value.as_str().to_string() },
+                Some(Token::Maximum) => range.upper = self.maximum.clone(),
                 _ => return Err("Type a value for the upper range.")
             }
-            // println!("{range:?}");
             ranges.push(range);
         }
-        println!("{ranges:?}");
         let all_numbers = ranges.iter().all(|r| matches!(r.lower, Value::Number{..}) && matches!(r.upper, Value::Number{..}));
         let all_strings = ranges.iter().all(|r| matches!(r.lower, Value::String{..}) && matches!(r.upper, Value::String{..}));
         if self.is_numeric && !all_numbers || !self.is_numeric && !all_strings {
