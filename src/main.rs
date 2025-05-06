@@ -8,14 +8,16 @@ use eframe:: {
 };
 
 mod widgets;
-use crate::widgets::errorfield::ErrorField;
-use crate::widgets::switch::Switch;
+use widgets::errorfield::ErrorField;
+use widgets::switch::Switch;
 
 mod models;
-use crate::models::variable::Variable;
-use crate::models::decoder::Decoder;
-use crate::models::encoder::Encoder;
-use crate::models::parser::Parser;
+use models::variable::Variable;
+use models::variable::Mapping;
+use models::decoder::Decoder;
+use models::encoder::Encoder;
+use models::parser::Parser;
+use models::parser::Token;
 
 const WINDOW_SIZE:  egui::Vec2 = egui::Vec2::new(640.0, 480.0);
 const ACCENT_COLOR: egui::Color32 = egui::Color32::from_rgb(204, 136, 0); // HSL(40,100,40)
@@ -179,25 +181,29 @@ impl Bitcoder
         }
     }
 
-    fn get_card_frame (&mut self) -> egui::Frame {
+    fn get_card_frame (&mut self, index: usize) -> egui::Frame {
+        let color = if self.cards[index].is_included {ACCENT_COLOR} else {egui::Color32::GRAY};
         self.get_main_frame()
             .inner_margin(18.0)
             .outer_margin(4.0)
             .corner_radius(12.0)
-            .fill(ACCENT_COLOR.gamma_multiply(0.1))
-            .stroke(egui::Stroke::new(2.0, ACCENT_COLOR.gamma_multiply(0.2)))
+            .fill(color.gamma_multiply(0.1))
+            .stroke(egui::Stroke::new(2.0, color.gamma_multiply(0.2)))
     }
 
     fn ui_card (&mut self, ui: &mut egui::Ui, index: usize) {
-        self.get_card_frame().show(ui, |ui| {
+        self.get_card_frame(index).show(ui, |ui| {
             let variable = &mut self.variables[index];
+            //TODO: double-click on title to rename a variable.
             ui.label(egui::RichText::new(format!("{} {}", if self.cards[index].is_numeric {"\u{e9ef}"} else {"\u{eb94}"}, variable.name())).heading());
             ui.separator();
+            if !self.cards[index].is_included {
+                ui.checkbox(&mut self.cards[index].is_included, "Include this");
+                return;
+            }
             ui.horizontal(|ui| {
                 ui.vertical(|ui| {
-                    if ui.checkbox(&mut self.cards[index].is_included, "Include this").changed() {
-                        println!("Clicked Include this");
-                    }
+                    ui.checkbox(&mut self.cards[index].is_included, "Include this");
                     if ui.checkbox(&mut self.cards[index].is_numeric, "As numeric").changed() {
                         if self.cards[index].is_numeric {
                             variable.as_numbers();
@@ -209,30 +215,38 @@ impl Bitcoder
                 ui.add_space(24.0);
                 ui.with_layout(egui::Layout::top_down_justified(egui::Align::LEFT), |ui| {
                     let card = &mut self.cards[index];
-                    if ui.radio(true, "Recode all unique values").clicked() {
-                        println!("Clicked Recode");
+                    let (is_recoded, is_cluster) = match variable.mapping() {
+                        Mapping::Recode => (true, false),
+                        Mapping::Cluster {..} => (false, true)
+                    };
+                    if ui.radio(is_recoded, "Recode all unique values").clicked() {
+                        variable.set_recoded();
                     }
-                    if ui.radio(false, "Use expression below to categorize:").clicked() {
-                        println!("Clicked Categorize");
+                    if ui.radio(is_cluster, "Use expression to create clusters").clicked() {
+                        Result::unwrap(variable.set_cluster(&Vec::<Token>::new()));
                     }
-                    if ui.add(ErrorField::new(&mut card.template, card.message.is_empty())).changed() {
-                        match Parser::parse(&card.template) {
-                            Err(m) => card.message = m,
-                            Ok (t) => {
-                                match variable.set_expression(&t) {
-                                    Ok (()) => card.message.clear(),
-                                    Err(m)  => card.message = m.to_string()
+                    if is_cluster {
+                        if ui.add(ErrorField::new(&mut card.template, card.message.is_empty())).changed() {
+                            match Parser::parse(&card.template) {
+                                Err(m) => card.message = m,
+                                Ok (t) => {
+                                    match variable.set_cluster(&t) {
+                                        Ok (()) => card.message.clear(),
+                                        Err(m)  => card.message = m.to_string()
+                                    }
                                 }
                             }
                         }
-                    }
-                    if !card.message.is_empty() {
-                        ui.label(egui::RichText::new(&self.cards[index].message).color(egui::Color32::RED));
+                        if !card.message.is_empty() {
+                            ui.label(egui::RichText::new(&self.cards[index].message).color(egui::Color32::RED));
+                        }
                     }
                 });
             });
             ui.separator();
-            ui.label(format!("Results in 893 variables from 1014 values ({} missing). Ranges from {} to {}", 
+            //TODO: sum up number of bit variables (= # of unique values for recoded variables, # of clusters including missing, otherwise).
+            ui.label(format!("Results in 893 bit variables from {} unique values ({} missing). Ranges from {} to {}", 
+                variable.uniques(),
                 variable.missing(), 
                 variable.minimum(), 
                 variable.maximum())
@@ -253,10 +267,14 @@ impl Bitcoder
 
     fn ui_outcome (&mut self, ui: &mut egui::Ui, context: &egui::Context) {
         ui.vertical(|ui| {
-            // ui.spacing_mut().item_spacing.y = 0.0;
             ui.label(egui::RichText::new("OUTCOME VARIABLE:").small().weak());
             ui.label(egui::RichText::new(self.outcome.name()).heading().color(ACCENT_COLOR));
-            ui.label(format!("2953 variables will be created. Outcome ranges from {} to {}", self.outcome.minimum(), self.outcome.maximum()));
+            //TODO: sum up all unique values for recoded, all clusters BUT only for all included.
+            ui.label(format!("{} bit variables in total will be created. Outcome ranges from {} to {}", 
+                0, //self.outcome.histogram().len(), //TODO: wrong, should be sum of ALL variables.
+                self.outcome.minimum(), 
+                self.outcome.maximum())
+            );
         });
         ui.add_space(12.0);
         ui.horizontal(|ui| {
@@ -313,7 +331,7 @@ impl Bitcoder
         self.variables.iter().for_each(|_| {
             self.cards.push(Card::new());
         });
-        // Last variable is always the outcome variable.
+        // Last variable is always the outcome variable (an f32).
         if let Some(variable) = self.variables.pop() {
             self.outcome = variable;
             self.outcome.as_numbers();

@@ -32,6 +32,7 @@ impl Decoder
             }
             while let Some(Ok(row)) = lines.next() {
                 if let Ok(values) = Self::split(&row) {
+                    //TODO: skip if any missing values?!
                     if values.len() != variables.len() {
                         return Err("Number of values differ between rows in this file.")
                     }

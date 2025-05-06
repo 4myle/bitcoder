@@ -18,6 +18,10 @@ impl Encoder
             path.set_extension("bitcoder");
             if let Ok(mut file) = File::create(path) {
                 for index in 0..variables.len() {
+
+                    //TODO: remove any bit variable that represent missing value!
+                    //TODO: use histogram.density for variable names.
+                    
                     // if let Some(parts) = self.data.get_parts(row) {
                     //     if let Ok(mut target) = self.parser.transform(parts, true) {
                             data.push(char::from_u32(u32::try_from(index).unwrap_or_default() % 2).unwrap_or_default());

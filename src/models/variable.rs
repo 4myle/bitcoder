@@ -3,14 +3,19 @@
 */
  
 use crate::models::parser::Token;
-
 use std::cmp::Ordering;
-use std::fmt:: {
+
+use std::collections::HashMap;
+use std::hash::{
+    Hash,
+    Hasher
+};
+use std::fmt::{
     Display,
     Formatter
 };
 
-#[derive(Default, PartialEq, Clone)]
+#[derive(Debug, Default, Clone, PartialEq)]
 pub enum Value 
 {
     String { string: String },
@@ -67,6 +72,18 @@ impl PartialOrd for Value
     }
 }
 
+impl Eq for Value {}
+impl Hash for Value 
+{
+    fn hash<H: Hasher>  (&self, state: &mut H) {
+        match self {
+            Value::String { string: s } => s.hash(state),
+            Value::Number { number: n } => format!("{n:.3}").as_str().hash(state),
+            Value::None => "13".hash(state),
+        }
+    }
+}
+
 impl Value 
 {
     fn new (value: &str) -> Self {
@@ -90,20 +107,34 @@ impl Value
 
 }
 
-#[derive(Default)]
+#[derive(Default, PartialEq)]
 pub struct Range 
 {
     lower: Value, 
     upper: Value
 }
 
-#[derive(Default)]
-enum Mapping 
+#[derive(Default, PartialEq)]
+pub enum Mapping 
 {
     Cluster {clusters: Vec<Range>},
     #[default] 
     Recode
 }
+
+//TODO: let this replace both ´uniques´ and ´missing´.
+#[derive(Debug, Default)]
+pub struct Histogram
+{
+    density: HashMap<String,usize>, // Frequency of unique values, key is bit variable name (bitname).
+    // dropped: usize, // Number of uncategorized values (not in any cluster).
+    summary: usize, // Number of unique bit variables to be created.
+    missing: usize, // Number of missing values.
+    minimum: Value, // Minimum value (string or number).
+    maximum: Value, // Maximum value (string or number).
+
+}
+
 
 #[derive(Default)]
 pub struct Variable
@@ -111,9 +142,7 @@ pub struct Variable
     name: String,
     values: Vec<Value>,
     backup: Vec<Value>,
-    missing: usize,
-    minimum: Value,
-    maximum: Value,
+    histogram: Histogram,    
     mapping: Mapping,
     is_numeric: bool
 }
@@ -125,18 +154,19 @@ impl Variable
             name: name.to_string(),
             values: Vec::new(),
             backup: Vec::new(),
-            missing: 0,
-            minimum: Value::None,
-            maximum: Value::None,
+            histogram: Histogram::default(),
             mapping: Mapping::default(),
             is_numeric: false
         }
     }
 
-    pub fn set_expression (&mut self, tokens: &[Token]) -> Result<(), &'static str> {
+    pub fn set_recoded (&mut self) {
+        self.mapping = Mapping::Recode;
+    }
+
+    pub fn set_cluster (&mut self, tokens: &[Token]) -> Result<(), &'static str> {
         let mut ranges = Vec::<Range>::new();
         let mut tokens = tokens.iter();
-        self.mapping = Mapping::Cluster {clusters: Vec::new()};
         loop {
             let mut range = Range::default();
             let value1st = tokens.next();
@@ -148,7 +178,7 @@ impl Variable
             match value1st {
                 Some(Token::Number { value }) => range.lower = Value::Number { number: *value },
                 Some(Token::String { value }) => range.lower = Value::String { string: value.as_str().to_string() },
-                Some(Token::Minimum) => range.lower = self.minimum.clone(),
+                Some(Token::Minimum) => range.lower = self.histogram.minimum.clone(),
                 _ => return Err("Type a value for the lower range.")
             }
             if operator.is_none() || operator != Some(&Token::Range) {
@@ -157,7 +187,7 @@ impl Variable
             match value2nd {
                 Some(Token::Number { value }) => range.upper = Value::Number { number: *value },
                 Some(Token::String { value }) => range.upper = Value::String { string: value.as_str().to_string() },
-                Some(Token::Maximum) => range.upper = self.maximum.clone(),
+                Some(Token::Maximum) => range.upper = self.histogram.maximum.clone(),
                 _ => return Err("Type a value for the upper range.")
             }
             ranges.push(range);
@@ -171,65 +201,157 @@ impl Variable
         Ok(())
     }
 
+    // fn range_from (&self, value: &Value) -> Option<&Range> {
+    //     match &self.mapping {
+    //         Mapping::Cluster { clusters } => {
+    //             for cluster in clusters {
+    //                 if  cluster.lower != Value::None && *value >= cluster.lower && *value <= cluster.upper {
+    //                     return Some(&cluster);
+    //                 }
+    //             }
+    //         },
+    //         _ => {
+    //             return None;
+    //         }
+    //     }
+    //     None
+    // }
+
+    // fn recalculate (&mut self, value: &Value) {
+    //     if *value == Value::None {
+    //         self.histogram.missing += 1;
+    //     } else {
+    //         let mut identifier = String::new();
+    //         match &self.mapping {
+    //             Mapping::Recode => {
+    //                 identifier = self.value_as_name(value);
+    //             },
+    //             Mapping::Cluster {..} => {
+    //                 if let Some(range) = self.range_from(value) {
+    //                     identifier = self.range_as_name(range);
+    //                 } else {
+    //                     identifier = String::from("Other");
+    //                 }
+    //             }
+    //         }
+    //         *self.histogram.density.entry(identifier).or_insert(0) += 1;
+    //     }
+    //     if  self.histogram.minimum == Value::None || self.histogram.minimum > *value {
+    //         self.histogram.minimum = value.clone();
+    //     }
+    //     if  self.histogram.maximum == Value::None || self.histogram.maximum < *value {
+    //         self.histogram.maximum = value.clone();
+    //     }
+    //     self.histogram.summary += 1;
+    // }
+
+    fn value_as_name (name: &String, value: &Value) -> String {
+        name.to_owned() + "--" + &value.to_string()
+    }
+
+    fn range_as_name (name: &String, range: &Range) -> String {
+        name.to_owned() + "--" + &range.lower.to_string() + "-to-" + &range.upper.to_string()
+    }
+
+    fn range_from<'a> (value: &Value, clusters: &'a [Range]) -> Option<&'a Range> {
+        clusters.iter().find(|&cluster| cluster.lower != Value::None && *value >= cluster.lower && *value <= cluster.upper)
+    }
+
     // Associated function instead of "method" to avoid (unsolvable?) borrow checker issues with self. 
-    fn set_residuals (value: &Value, missing: &mut usize, minimum: &mut Value, maximum: &mut Value) {
+    fn recalculate (histogram: &mut Histogram, mapping: &Mapping, name: &String, value: &Value) {
         if *value == Value::None {
-            *missing += 1;
+            histogram.missing += 1;
+        } else {
+            let identifier;
+            match &mapping {
+                Mapping::Recode => {
+                    identifier = Self::value_as_name(name, value);
+                },
+                Mapping::Cluster { clusters } => {
+                    if let Some(range) = Self::range_from(value, clusters) {
+                        identifier = Self::range_as_name(name, range);
+                    } else {
+                        identifier = String::from("Other");
+                    }
+                }
+            }
+            *histogram.density.entry(identifier).or_insert(0) += 1;
         }
-        if  *minimum == Value::None || *minimum > *value {
-            *minimum = value.clone();
+        if  histogram.minimum == Value::None || histogram.minimum > *value {
+            histogram.minimum = value.clone();
         }
-        if  *maximum == Value::None || *maximum < *value {
-            *maximum = value.clone();
+        if  histogram.maximum == Value::None || histogram.maximum < *value {
+            histogram.maximum = value.clone();
         }
+        histogram.summary += 1;
     }
 
     pub fn add_value (&mut self, value: &str) {
-        self.values.push(Value::new(value));
-        if let Some(value) = self.values.last() {
-            Variable::set_residuals(value, &mut self.missing, &mut self.minimum, &mut self.maximum);
-        }
+        let value = Value::new(value);
+        Self::recalculate(&mut self.histogram, &self.mapping, &self.name, &value);
+        self.values.push(value);
     }
 
     pub fn as_numbers (&mut self) {
         self.is_numeric = true;
         self.backup = self.values.clone();
-        self.minimum = Value::None;
-        self.maximum = Value::None;
-        self.missing = 0;
+        self.histogram = Histogram::default();
         for value in &mut self.values {
             value.as_number();
-            Variable::set_residuals(value, &mut self.missing, &mut self.minimum, &mut self.maximum);
+            Self::recalculate(&mut self.histogram, &self.mapping, &self.name, value);
         }
+        // println!("{0: <10} | {1: <10}", );
+        println!("{:#?}", self.histogram);
+
     }
 
     pub fn as_strings (&mut self) {
         self.is_numeric = false;
         self.values = self.backup.clone();
         self.backup.clear();
-        self.minimum = Value::None;
-        self.maximum = Value::None;
-        self.missing = 0;
+        self.histogram = Histogram::default();
         for value in &mut self.values {
-            Variable::set_residuals(value, &mut self.missing, &mut self.minimum, &mut self.maximum);
+            Self::recalculate(&mut self.histogram, &self.mapping, &self.name, value);
         }
+        // println!("As strings, {} contains {} unique values", self.name, self.uniques.len());
     }
 
     pub fn name (&self) -> &str {
         self.name.as_str()
     }
 
+    // pub fn histogram (&self) -> &Histogram {
+    //     &self.histogram
+    // }
+
+    pub fn uniques (&self) -> usize {
+        self.histogram.summary
+    }
+
     pub fn missing (&self) -> usize {
-        self.missing
+        self.histogram.missing
     }
 
     pub fn minimum (&self) -> &Value {
-        &self.minimum
+        &self.histogram.minimum
     }
 
     pub fn maximum (&self) -> &Value {
-        &self.maximum
+        &self.histogram.maximum
     }
 
-}
+    pub fn mapping (&self) -> &Mapping {
+        &self.mapping
+    }
+    
+    // fn value_as_name (&self, value: &Value) -> String {
+    //     //TODO: implement.
+    //     String::from("MyFancyBitName")
+    // }
+    
+    // fn range_as_name (&self, range: &Range) -> String {
+    //     //TODO: implement.
+    //     String::from("MyFancyBitName")
+    // }
 
+}
