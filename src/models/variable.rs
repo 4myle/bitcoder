@@ -107,7 +107,7 @@ impl Value
 
 }
 
-#[derive(Default, PartialEq)]
+#[derive(Debug, Default, PartialEq)]
 pub struct Range 
 {
     lower: Value, 
@@ -117,21 +117,18 @@ pub struct Range
 #[derive(Default, PartialEq)]
 pub enum Mapping 
 {
-    Cluster {clusters: Vec<Range>},
-    #[default] 
-    Recode
+    Cluster {clusters: Vec<Range>}, // Values are grouped into clusters, as described by an expression.
+    #[default]                      // Recode is the default ...
+    Recode                          // .. and means every unique value is a group.
 }
 
-//TODO: let this replace both ´uniques´ and ´missing´.
 #[derive(Debug, Default)]
 pub struct Histogram
 {
     density: HashMap<String,usize>, // Frequency of unique values, key is bit variable name (bitname).
-    // dropped: usize, // Number of uncategorized values (not in any cluster).
-    summary: usize, // Number of unique bit variables to be created.
-    missing: usize, // Number of missing values.
-    minimum: Value, // Minimum value (string or number).
-    maximum: Value, // Maximum value (string or number).
+    missing: usize,                 // Number of missing values.
+    minimum: Value,                 // Minimum value (String or Number).
+    maximum: Value,                 // Maximum value (String or Number).
 
 }
 
@@ -139,12 +136,13 @@ pub struct Histogram
 #[derive(Default)]
 pub struct Variable
 {
-    name: String,
-    values: Vec<Value>,
-    backup: Vec<Value>,
-    histogram: Histogram,    
-    mapping: Mapping,
-    is_numeric: bool
+    name: String,           // Identifier of this variable
+    values: Vec<Value>,     // List of actual values (Number, String or None). 
+    backup: Vec<Value>,     // Clone of string values when converting to number (and back).
+    histogram: Histogram,   // Statistics, including table of frequence.
+    mapping: Mapping,       // Values are either grouped as one cluster per unique value, or into clusters through an expression.
+    is_included: bool,      // If included in output or not.
+    is_numeric: bool        // If all values are numbers.
 }
 
 impl Variable
@@ -156,12 +154,16 @@ impl Variable
             backup: Vec::new(),
             histogram: Histogram::default(),
             mapping: Mapping::default(),
+            is_included: true,
             is_numeric: false
         }
     }
 
     pub fn set_recoded (&mut self) {
         self.mapping = Mapping::Recode;
+        for value in &mut self.values {
+            Self::recalculate(&mut self.histogram, &self.mapping, &self.name, value);
+        }
     }
 
     pub fn set_cluster (&mut self, tokens: &[Token]) -> Result<(), &'static str> {
@@ -190,6 +192,12 @@ impl Variable
                 Some(Token::Maximum) => range.upper = self.histogram.maximum.clone(),
                 _ => return Err("Type a value for the upper range.")
             }
+            if range.lower > range.upper {
+                return Err("Lower value must be less than or equal to the upper value.")
+            }
+            if !ranges.is_empty() && range.lower < Option::unwrap(ranges.last()).upper {
+                return Err("Lower value must be greater than or equal to the previous upper value.")
+            }
             ranges.push(range);
         }
         let all_numbers = ranges.iter().all(|r| matches!(r.lower, Value::Number{..}) && matches!(r.upper, Value::Number{..}));
@@ -197,67 +205,33 @@ impl Variable
         if self.is_numeric && !all_numbers || !self.is_numeric && !all_strings {
             return Err("All values must be of the same type and must match the variable type.")
         }
+        let clusters = !ranges.is_empty();
         self.mapping = Mapping::Cluster { clusters: ranges };
+        if clusters {
+            self.histogram = Histogram::default();
+            for value in &mut self.values {
+                Self::recalculate(&mut self.histogram, &self.mapping, &self.name, value);
+            }
+        }
         Ok(())
     }
 
-    // fn range_from (&self, value: &Value) -> Option<&Range> {
-    //     match &self.mapping {
-    //         Mapping::Cluster { clusters } => {
-    //             for cluster in clusters {
-    //                 if  cluster.lower != Value::None && *value >= cluster.lower && *value <= cluster.upper {
-    //                     return Some(&cluster);
-    //                 }
-    //             }
-    //         },
-    //         _ => {
-    //             return None;
-    //         }
-    //     }
-    //     None
-    // }
-
-    // fn recalculate (&mut self, value: &Value) {
-    //     if *value == Value::None {
-    //         self.histogram.missing += 1;
-    //     } else {
-    //         let mut identifier = String::new();
-    //         match &self.mapping {
-    //             Mapping::Recode => {
-    //                 identifier = self.value_as_name(value);
-    //             },
-    //             Mapping::Cluster {..} => {
-    //                 if let Some(range) = self.range_from(value) {
-    //                     identifier = self.range_as_name(range);
-    //                 } else {
-    //                     identifier = String::from("Other");
-    //                 }
-    //             }
-    //         }
-    //         *self.histogram.density.entry(identifier).or_insert(0) += 1;
-    //     }
-    //     if  self.histogram.minimum == Value::None || self.histogram.minimum > *value {
-    //         self.histogram.minimum = value.clone();
-    //     }
-    //     if  self.histogram.maximum == Value::None || self.histogram.maximum < *value {
-    //         self.histogram.maximum = value.clone();
-    //     }
-    //     self.histogram.summary += 1;
-    // }
-
-    fn value_as_name (name: &String, value: &Value) -> String {
-        name.to_owned() + "--" + &value.to_string()
+    // Associated function instead of method to avoid "cannot mutate self twice". 
+    fn name_from_value (name: &String, value: &Value) -> String {
+        name.to_owned() + "_" + &value.to_string()
     }
 
-    fn range_as_name (name: &String, range: &Range) -> String {
-        name.to_owned() + "--" + &range.lower.to_string() + "-to-" + &range.upper.to_string()
+    // Associated function instead of method to avoid "cannot mutate self twice". 
+    fn name_from_range (name: &String, range: &Range) -> String {
+        name.to_owned() + "_" + &range.lower.to_string() + "_" + &range.upper.to_string()
     }
 
-    fn range_from<'a> (value: &Value, clusters: &'a [Range]) -> Option<&'a Range> {
+    // Associated function instead of method to avoid "cannot mutate self twice". 
+    fn get_range<'a> (value: &Value, clusters: &'a [Range]) -> Option<&'a Range> {
         clusters.iter().find(|&cluster| cluster.lower != Value::None && *value >= cluster.lower && *value <= cluster.upper)
     }
 
-    // Associated function instead of "method" to avoid (unsolvable?) borrow checker issues with self. 
+    // Associated function instead of method to avoid "cannot mutate self twice". 
     fn recalculate (histogram: &mut Histogram, mapping: &Mapping, name: &String, value: &Value) {
         if *value == Value::None {
             histogram.missing += 1;
@@ -265,13 +239,13 @@ impl Variable
             let identifier;
             match &mapping {
                 Mapping::Recode => {
-                    identifier = Self::value_as_name(name, value);
+                    identifier = Self::name_from_value(name, value);
                 },
                 Mapping::Cluster { clusters } => {
-                    if let Some(range) = Self::range_from(value, clusters) {
-                        identifier = Self::range_as_name(name, range);
+                    if let Some(range) = Self::get_range(value, clusters) {
+                        identifier = Self::name_from_range(name, range);
                     } else {
-                        identifier = String::from("Other");
+                        identifier = name.to_owned() + "_Other";
                     }
                 }
             }
@@ -283,7 +257,6 @@ impl Variable
         if  histogram.maximum == Value::None || histogram.maximum < *value {
             histogram.maximum = value.clone();
         }
-        histogram.summary += 1;
     }
 
     pub fn add_value (&mut self, value: &str) {
@@ -300,9 +273,6 @@ impl Variable
             value.as_number();
             Self::recalculate(&mut self.histogram, &self.mapping, &self.name, value);
         }
-        // println!("{0: <10} | {1: <10}", );
-        println!("{:#?}", self.histogram);
-
     }
 
     pub fn as_strings (&mut self) {
@@ -313,19 +283,18 @@ impl Variable
         for value in &mut self.values {
             Self::recalculate(&mut self.histogram, &self.mapping, &self.name, value);
         }
-        // println!("As strings, {} contains {} unique values", self.name, self.uniques.len());
+    }
+
+    pub fn set_name (&mut self, name: &str) {
+        self.name = name.to_string();
     }
 
     pub fn name (&self) -> &str {
         self.name.as_str()
     }
 
-    // pub fn histogram (&self) -> &Histogram {
-    //     &self.histogram
-    // }
-
-    pub fn uniques (&self) -> usize {
-        self.histogram.summary
+    pub fn density (&self) -> &HashMap<String,usize> {
+        &self.histogram.density
     }
 
     pub fn missing (&self) -> usize {
@@ -343,15 +312,18 @@ impl Variable
     pub fn mapping (&self) -> &Mapping {
         &self.mapping
     }
-    
-    // fn value_as_name (&self, value: &Value) -> String {
-    //     //TODO: implement.
-    //     String::from("MyFancyBitName")
-    // }
-    
-    // fn range_as_name (&self, range: &Range) -> String {
-    //     //TODO: implement.
-    //     String::from("MyFancyBitName")
-    // }
+
+    pub fn include (&mut self) {
+        self.is_included = true;
+        self.histogram = Histogram::default();
+        for value in &mut self.values {
+            Self::recalculate(&mut self.histogram, &self.mapping, &self.name, value);
+        }
+    }
+
+    pub fn exclude (&mut self) {
+        self.is_included = false;
+        self.histogram = Histogram::default();
+    }
 
 }
