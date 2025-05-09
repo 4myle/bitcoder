@@ -17,7 +17,6 @@ use models::variable::Mapping;
 use models::decoder::Decoder;
 use models::encoder::Encoder;
 use models::parser::Parser;
-use models::parser::Token;
 
 const WINDOW_SIZE:  egui::Vec2 = egui::Vec2::new(640.0, 480.0);
 const ACCENT_COLOR: egui::Color32 = egui::Color32::from_rgb(204, 136, 0); // HSL(40,100,40)
@@ -184,7 +183,7 @@ impl Bitcoder
     }
 
     fn get_card_frame (&mut self, index: usize) -> egui::Frame {
-        let color = if self.cards[index].is_included {ACCENT_COLOR} else {egui::Color32::GRAY};
+        let color = if self.cards[index].is_included {ACCENT_COLOR} else {Color32::GRAY};
         self.get_main_frame()
             .inner_margin(18.0)
             .outer_margin(4.0)
@@ -193,23 +192,36 @@ impl Bitcoder
             .stroke(egui::Stroke::new(2.0, color.gamma_multiply(0.2)))
     }
 
+    fn get_over_frame (&mut self) -> egui::Frame {
+        self.get_main_frame()
+            .inner_margin(18.0)
+            .outer_margin(4.0)
+            .corner_radius(12.0)
+            .shadow(egui::Shadow { offset: [4,4], blur: 8, spread: 0, color: Color32::BLACK.gamma_multiply(0.3) })
+            .stroke(egui::Stroke::new(2.0, ACCENT_COLOR.gamma_multiply(0.2)))
+    }
+
     fn ui_card (&mut self, ui: &mut egui::Ui, index: usize) {
         self.get_card_frame(index).show(ui, |ui| {
             let variable = &mut self.variables[index];
+            let card = &mut self.cards[index];
             ui.horizontal(|ui| {
                 ui.style_mut().override_text_style = Some(egui::TextStyle::Heading);
                 ui.style_mut().visuals.extreme_bg_color = Color32::TRANSPARENT;
-                ui.label(if self.cards[index].is_numeric {"\u{e9ef}"} else {"\u{eb94}"});
-                if ui.text_edit_singleline(&mut self.cards[index].title).changed() {
-                    //TODO: check that title is not empty.
-                    //TODO: check that title is unique among variables.
-                    variable.set_name(self.cards[index].title.as_str());
+                ui.label(if card.is_numeric {"\u{e9ef}"} else {"\u{eb94}"});
+                if ui.text_edit_singleline(&mut card.title).changed() {
+                    if  card.title.is_empty() {
+                        card.title = variable.name().to_string();
+                        self.error = String::from("Name of variable can not be empty.");
+                    } else {
+                        variable.set_name(card.title.as_str());
+                    }
                 }
             });
             ui.separator();
-            if !self.cards[index].is_included {
-                ui.checkbox(&mut self.cards[index].is_included, "Include this");
-                if self.cards[index].is_included {
+            if  !card.is_included {
+                ui.checkbox(&mut card.is_included, "Include this");
+                if card.is_included {
                     variable.include();
                 } else {
                     variable.exclude();
@@ -218,11 +230,12 @@ impl Bitcoder
             }
             ui.horizontal(|ui| {
                 ui.vertical(|ui| {
-                    if ui.checkbox(&mut self.cards[index].is_included, "Include this").changed() && self.cards[index].is_included {
+                    let card = &mut self.cards[index];
+                    if ui.checkbox(&mut card.is_included, "Include this").changed() && card.is_included {
                         variable.include();
                     }
-                    if ui.checkbox(&mut self.cards[index].is_numeric, "As numeric").changed() {
-                        if self.cards[index].is_numeric {
+                    if ui.checkbox(&mut card.is_numeric, "As numeric").changed() {
+                        if card.is_numeric {
                             variable.as_numbers();
                         } else {
                             variable.as_strings();
@@ -239,7 +252,7 @@ impl Bitcoder
                         variable.set_recoded();
                     }
                     if ui.radio(is_cluster, "Use expression to create clusters").clicked() {
-                        Result::unwrap(variable.set_cluster(&Vec::<Token>::new()));
+                        variable.set_cluster();
                     }
                     if is_cluster {
                         ui.with_layout(egui::Layout::top_down_justified(egui::Align::LEFT), |ui| {
@@ -248,7 +261,7 @@ impl Bitcoder
                                 match Parser::parse(&card.expression) {
                                     Err(m) => card.message = m,
                                     Ok (t) => {
-                                        match variable.set_cluster(&t) {
+                                        match variable.use_ranges(&t) {
                                             Ok (()) => card.message.clear(),
                                             Err(m)  => card.message = m.to_string()
                                         }
@@ -260,11 +273,12 @@ impl Bitcoder
                             }
                         });
                     }
+                    //TODO: add boxplot! https://github.com/emilk/egui_plot AND https://github.com/emilk/egui_plot/issues/9
                 });
             });
             ui.separator();
             ui.label(format!("Results in {} bit variables ({} missing). Ranges from {} to {}", 
-                variable.density().len(),
+                variable.density().len(), // = number of clusters or number of unique values if recoded.
                 variable.missing(), 
                 variable.minimum(), 
                 variable.maximum())
@@ -361,7 +375,7 @@ impl Bitcoder
         self.error = Encoder::save(self.path.as_str(), &self.variables).as_message();
         self.state = StateTracker::Idle;
     }
-
+    
 }
 
 impl App for Bitcoder
@@ -381,10 +395,10 @@ impl App for Bitcoder
         }
         egui::CentralPanel::default().frame(self.get_main_frame()).show(context, |ui| {
             if !self.error.is_empty() {
-                egui::Modal::new(egui::Id::new("Dialog")).frame(self.get_main_frame()).show(ui.ctx(), |ui| {
-                    ui.set_width(200.0);
+                egui::Modal::new(egui::Id::new("Dialog")).frame(self.get_over_frame()).show(ui.ctx(), |ui| {
+                    ui.set_width(240.0);
                     ui.style_mut().spacing.item_spacing = egui::Vec2::new(18.0, 12.0);
-                    ui.label(egui::RichText::new("Oh no! An error occured!").color(ACCENT_COLOR).weak());
+                    ui.label(egui::RichText::new("Oh no! An error occured.").color(ACCENT_COLOR).weak());
                     ui.label(egui::RichText::new(&self.error).strong());
                     if ui.button("Ok").clicked() {
                         self.error.clear();

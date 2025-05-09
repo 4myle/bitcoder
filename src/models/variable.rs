@@ -161,12 +161,21 @@ impl Variable
 
     pub fn set_recoded (&mut self) {
         self.mapping = Mapping::Recode;
+        self.histogram = Histogram::default();
         for value in &mut self.values {
             Self::recalculate(&mut self.histogram, &self.mapping, &self.name, value);
         }
     }
 
-    pub fn set_cluster (&mut self, tokens: &[Token]) -> Result<(), &'static str> {
+    pub fn set_cluster (&mut self) {
+        self.mapping = Mapping::Cluster { clusters: Vec::new() };
+        self.histogram = Histogram::default();
+        for value in &mut self.values {
+            Self::recalculate(&mut self.histogram, &self.mapping, &self.name, value);
+        }
+    }
+
+    pub fn use_ranges (&mut self, tokens: &[Token]) -> Result<(), &'static str> {
         let mut ranges = Vec::<Range>::new();
         let mut tokens = tokens.iter();
         loop {
@@ -314,6 +323,9 @@ impl Variable
     }
 
     pub fn include (&mut self) {
+        if self.is_included {
+            return;
+        }
         self.is_included = true;
         self.histogram = Histogram::default();
         for value in &mut self.values {
@@ -322,6 +334,9 @@ impl Variable
     }
 
     pub fn exclude (&mut self) {
+        if !self.is_included {
+            return;
+        }
         self.is_included = false;
         self.histogram = Histogram::default();
     }
