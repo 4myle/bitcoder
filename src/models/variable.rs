@@ -15,7 +15,7 @@ use std::fmt::{
     Formatter
 };
 
-#[derive(Debug, Default, Clone, PartialEq)]
+#[derive(Default, Clone, PartialEq)]
 pub enum Value 
 {
     String { string: String },
@@ -107,7 +107,7 @@ impl Value
 
 }
 
-#[derive(Debug, Default, PartialEq)]
+#[derive(Default, PartialEq)]
 pub struct Range 
 {
     lower: Value, 
@@ -122,7 +122,7 @@ pub enum Mapping
     Recode                          // .. and means every unique value is a group.
 }
 
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub struct Histogram
 {
     density: HashMap<String,usize>, // Frequency of unique values, key is bit variable name (bitname).

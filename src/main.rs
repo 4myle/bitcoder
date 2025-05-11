@@ -36,14 +36,15 @@ enum StateTracker
     #[default] Idle
 }
 
-#[derive(Default)]
+#[derive(Default, serde::Deserialize, serde::Serialize)]
 struct Card 
 {
     expression: String, // Expression to cluster values (if in Cluster mode).
-    message: String,    // Message after parsing expression.
     is_included: bool,  // If variable is included (GUI)
     is_numeric: bool,   // If variable should be perceived as having string or numeric values.
-    title: String       // Title of variable that can be edited.
+    title: String,      // Title of variable that can be edited.
+    #[serde(skip)]
+    message: String,    // Message after parsing expression.
 }
 
 impl Card 
@@ -77,6 +78,7 @@ struct Bitcoder
     ui_size: f32,
     ui_mode: InterfaceMode,
 
+    // #[serde(skip)] storage: dyn eframe::Storage,
     #[serde(skip)] variables: Vec<Variable>,
     #[serde(skip)] outcome: Variable,
     #[serde(skip)] cards: Vec<Card>,
@@ -273,7 +275,7 @@ impl Bitcoder
                             }
                         });
                     }
-                    //TODO: add boxplot! https://github.com/emilk/egui_plot AND https://github.com/emilk/egui_plot/issues/9
+                    // Add boxplot? https://github.com/emilk/egui_plot and https://github.com/emilk/egui_plot/issues/9
                 });
             });
             ui.separator();
@@ -330,7 +332,6 @@ impl Bitcoder
     }
 
     fn ui_settings (&mut self, ui: &mut egui::Ui, context: &egui::Context) {
-        //TODO: add gui for saving variable transformation presets.
         ui.horizontal(|ui| {
             ui.vertical(|ui| {
                 ui.label(egui::RichText::new("TEXT SIZE").small().weak());
@@ -357,16 +358,39 @@ impl Bitcoder
         });
     }
 
-    fn load_file (&mut self) {
+    fn load_file (&mut self, storage: &dyn eframe::Storage) {
         self.error = Decoder::load(self.path.as_str(), &mut self.variables).as_message();
         self.cards = Vec::with_capacity(self.variables.len());
-        self.variables.iter().for_each(|v| {
-            self.cards.push(Card::new(v.name()));
-        });
-        // Last variable is always the outcome variable (an f32).
+        // Last variable is the outcome variable (interpretable as an f32).
         if let Some(variable) = self.variables.pop() {
             self.outcome = variable;
             self.outcome.as_numbers();
+        }
+        if let Some(stem) = std::path::PathBuf::from(&self.path).file_stem() {
+            if let Some(name) = stem.to_str() {
+                self.cards = eframe::get_value(storage, name).unwrap_or_default();
+                // Recalculate variables marked as numeric and set cluster expression, if any.
+                self.cards.iter_mut().enumerate().for_each(|c| {
+                    if c.1.is_numeric {
+                        self.variables[c.0].as_numbers();
+                    }
+                    if !c.1.expression.is_empty() {
+                        match Parser::parse(&c.1.expression) {
+                            Err(m) => c.1.message = m,
+                            Ok (t) => {
+                                match self.variables[c.0].use_ranges(&t) {
+                                    Ok (()) => c.1.message.clear(),
+                                    Err(m)  => c.1.message = m.to_string()
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+        }
+        // Fill rest of cards collection, or all if none was deserialized.
+        for index in self.cards.len()..self.variables.len() {
+            self.cards.push(Card::new(self.variables[index].name()));
         }
     }
 
@@ -382,9 +406,16 @@ impl App for Bitcoder
 {
     fn save (&mut self, storage: &mut dyn eframe::Storage) {
         eframe::set_value(storage, eframe::APP_KEY, self);
+        if !self.path.is_empty() {
+            if let Some(stem) = std::path::PathBuf::from(&self.path).file_stem() {
+                if let Some(name) = stem.to_str() {
+                    eframe::set_value(storage, name, &self.cards);
+                }
+            }
+        }
     }
 
-    fn update (&mut self, context: &egui::Context, _frame: &mut Frame) {
+    fn update (&mut self, context: &egui::Context, frame: &mut Frame) {
         egui::TopBottomPanel::bottom("Settings").frame(self.get_main_frame()).resizable(false).show(context, |ui| {
             self.ui_settings(ui, context);
         });
@@ -423,7 +454,7 @@ impl App for Bitcoder
             if dropped.path.is_some() {
                 if let Some(path) = &dropped.path {
                     self.path = path.display().to_string();
-                    self.load_file();
+                    self.load_file(Option::unwrap(frame.storage()));
                 }
             }
             if self.variables.is_empty() {
@@ -450,7 +481,9 @@ fn main() -> eframe::Result {
             ..Default::default()
         },
         Box::new(|context| {
-            Ok(Box::new(Bitcoder::new(context)))
+            let application = Box::new(Bitcoder::new(context));
+            // *application.storage = context.storage;
+            Ok (application)
         })
     )
 }
