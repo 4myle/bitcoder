@@ -294,10 +294,6 @@ impl Variable
         }
     }
 
-    pub fn set_name (&mut self, name: &str) {
-        self.name = name.to_string();
-    }
-
     pub fn name (&self) -> &str {
         self.name.as_str()
     }
@@ -320,6 +316,15 @@ impl Variable
 
     pub fn mapping (&self) -> &Mapping {
         &self.mapping
+    }
+
+    pub fn set_name (&mut self, name: &str) {
+        self.name = name.to_string();
+        // Recalculation needed since bit variable names are stored in density map.
+        self.histogram = Histogram::default();
+        for value in &mut self.values {
+            Self::recalculate(&mut self.histogram, &self.mapping, &self.name, value);
+        }
     }
 
     pub fn include (&mut self) {

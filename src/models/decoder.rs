@@ -1,5 +1,5 @@
 /* 
-    Reads and parses a CSV file and creates a vector of Variables.
+    Reads and parses a CSV file and creates a vector of variables.
 */
 
 
@@ -17,8 +17,9 @@ static SPLITTER: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(||
 pub struct Decoder;
 impl Decoder 
 {
-    pub fn load (path: &str, variables: &mut Vec<Variable>) -> Result<(), & 'static str> {
+    pub fn load (path: &str, variables: &mut Vec<Variable>, rows: &mut usize) -> Result<(), & 'static str> {
         variables.clear();
+        *rows = 0;
         if let Ok(file) = File::open(path) {
             let mut lines = BufReader::new(file).lines();
             if let Some(Ok(row)) = lines.next() { 
@@ -37,6 +38,7 @@ impl Decoder
                     }
                     for (index, value) in values.into_iter().enumerate() {
                         variables[index].add_value(value);
+                        *rows += 1;
                     };
                 }
             };

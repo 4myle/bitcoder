@@ -80,6 +80,7 @@ struct Bitcoder
 
     // #[serde(skip)] storage: dyn eframe::Storage,
     #[serde(skip)] variables: Vec<Variable>,
+    #[serde(skip)] rows: usize,
     #[serde(skip)] outcome: Variable,
     #[serde(skip)] cards: Vec<Card>,
     #[serde(skip)] error: String,
@@ -94,6 +95,7 @@ impl Default for Bitcoder
             ui_size: 1.2,
             ui_mode: InterfaceMode::Dark,
             variables: Vec::new(),
+            rows: 0,
             outcome: Variable::default(),
             cards: Vec::new(),
             error: String::new(),
@@ -264,8 +266,8 @@ impl Bitcoder
                                     Err(m) => card.message = m,
                                     Ok (t) => {
                                         match variable.use_ranges(&t) {
-                                            Ok (()) => card.message.clear(),
-                                            Err(m)  => card.message = m.to_string()
+                                            Err(m)  => card.message = m.to_string(),
+                                            Ok (()) => card.message.clear()
                                         }
                                     }
                                 }
@@ -359,7 +361,7 @@ impl Bitcoder
     }
 
     fn load_file (&mut self, storage: &dyn eframe::Storage) {
-        self.error = Decoder::load(self.path.as_str(), &mut self.variables).as_message();
+        self.error = Decoder::load(self.path.as_str(), &mut self.variables, &mut self.rows).as_message();
         self.cards = Vec::with_capacity(self.variables.len());
         // Last variable is the outcome variable (interpretable as an f32).
         if let Some(variable) = self.variables.pop() {
@@ -369,8 +371,10 @@ impl Bitcoder
         if let Some(stem) = std::path::PathBuf::from(&self.path).file_stem() {
             if let Some(name) = stem.to_str() {
                 self.cards = eframe::get_value(storage, name).unwrap_or_default();
-                // Recalculate variables marked as numeric and set cluster expression, if any.
                 self.cards.iter_mut().enumerate().for_each(|c| {
+                    if c.1.title != self.variables[c.0].name() {
+                        self.variables[c.0].set_name(&c.1.title);
+                    }
                     if c.1.is_numeric {
                         self.variables[c.0].as_numbers();
                     }
@@ -379,8 +383,8 @@ impl Bitcoder
                             Err(m) => c.1.message = m,
                             Ok (t) => {
                                 match self.variables[c.0].use_ranges(&t) {
-                                    Ok (()) => c.1.message.clear(),
-                                    Err(m)  => c.1.message = m.to_string()
+                                    Err(m)  => c.1.message = m.to_string(),
+                                    Ok (()) => c.1.message.clear()
                                 }
                             }
                         }
@@ -396,7 +400,7 @@ impl Bitcoder
 
     fn save_file (&mut self) {
         self.state = StateTracker::Saving;
-        self.error = Encoder::save(self.path.as_str(), &self.variables).as_message();
+        self.error = Encoder::save(self.path.as_str(), &self.variables, self.rows).as_message();
         self.state = StateTracker::Idle;
     }
     
