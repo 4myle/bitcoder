@@ -2,7 +2,7 @@
 description = "Bit string file creation by categorizing value-based text data."
 name = "bitcoder"
 authors = ["Roger Salomonsson <medicorab@gmail.com>"]
-version = "0.0.6"
+version = "1.0.9"
 edition = "2024"
 
 [dependencies]

@@ -33,14 +33,18 @@ impl Decoder
             }
             while let Some(Ok(row)) = lines.next() {
                 if let Ok(values) = Self::split(&row) {
+                    // Skip rows that are missing value of outcome variable (last one).
+                    if values.ends_with(&[""]) {
+                        continue;
+                    }
                     if values.len() != variables.len() {
                         return Err("Number of values differ between rows in this file.")
                     }
                     for (index, value) in values.into_iter().enumerate() {
                         variables[index].add_value(value);
-                        *rows += 1;
                     };
                 }
+                *rows += 1;
             };
         } else {
             return Err("File cannot be opened. Is it opened somewhere else?")

@@ -305,8 +305,9 @@ impl Bitcoder
         ui.vertical(|ui| {
             ui.label(egui::RichText::new("OUTCOME VARIABLE:").small().weak());
             ui.label(egui::RichText::new(self.outcome.name()).heading().color(ACCENT_COLOR));
-            ui.label(format!("{} bit variables in total will be created. Outcome ranges from {} to {}", 
+            ui.label(format!("{} bit variables will be built from {} observations. Outcome ranges from {} to {}", 
                 self.variables.iter().map(|v| v.density().len()).reduce(|a, v| a + v).unwrap_or(0),
+                self.rows,
                 self.outcome.minimum(), 
                 self.outcome.maximum())
             );
@@ -400,7 +401,7 @@ impl Bitcoder
 
     fn save_file (&mut self) {
         self.state = StateTracker::Saving;
-        self.error = Encoder::save(self.path.as_str(), &self.variables, self.rows).as_message();
+        self.error = Encoder::save(self.path.as_str(), &self.variables, &self.outcome, self.rows).as_message();
         self.state = StateTracker::Idle;
     }
     

@@ -225,49 +225,6 @@ impl Variable
         Ok(())
     }
 
-    // Associated function instead of method to avoid "cannot mutate self twice". 
-    fn name_from_value (name: &String, value: &Value) -> String {
-        name.to_owned() + "_" + &value.to_string()
-    }
-
-    // Associated function instead of method to avoid "cannot mutate self twice". 
-    fn name_from_range (name: &String, range: &Range) -> String {
-        name.to_owned() + "_" + &range.lower.to_string() + "_" + &range.upper.to_string()
-    }
-
-    // Associated function instead of method to avoid "cannot mutate self twice". 
-    fn get_range<'a> (value: &Value, clusters: &'a [Range]) -> Option<&'a Range> {
-        clusters.iter().find(|&cluster| cluster.lower != Value::None && *value >= cluster.lower && *value <= cluster.upper)
-    }
-
-    // Associated function instead of method to avoid "cannot mutate self twice". 
-    fn recalculate (histogram: &mut Histogram, mapping: &Mapping, name: &String, value: &Value) {
-        if *value == Value::None {
-            histogram.missing += 1;
-        } else {
-            let identifier;
-            match &mapping {
-                Mapping::Recode => {
-                    identifier = Self::name_from_value(name, value);
-                },
-                Mapping::Cluster { clusters } => {
-                    if let Some(range) = Self::get_range(value, clusters) {
-                        identifier = Self::name_from_range(name, range);
-                    } else {
-                        identifier = name.to_owned() + "_Other";
-                    }
-                }
-            }
-            *histogram.density.entry(identifier).or_insert(0) += 1;
-        }
-        if  histogram.minimum == Value::None || histogram.minimum > *value {
-            histogram.minimum = value.clone();
-        }
-        if  histogram.maximum == Value::None || histogram.maximum < *value {
-            histogram.maximum = value.clone();
-        }
-    }
-
     pub fn add_value (&mut self, value: &str) {
         let value = Value::new(value);
         Self::recalculate(&mut self.histogram, &self.mapping, &self.name, &value);
@@ -318,6 +275,10 @@ impl Variable
         &self.mapping
     }
 
+    pub fn value_at (&self, index: usize) -> &Value {
+        &self.values[index]
+    }
+
     pub fn set_name (&mut self, name: &str) {
         self.name = name.to_string();
         // Recalculation needed since bit variable names are stored in density map.
@@ -346,4 +307,59 @@ impl Variable
         self.histogram = Histogram::default();
     }
 
+    pub fn vector_of (&self, index: usize) -> Vec<(String,bool)> {
+        let mut bits = Vec::<(String,bool)>::new();
+        let current  = Self::bit_name(&self.mapping, &self.name, &self.values[index]);
+        for key in self.histogram.density.keys() {
+            bits.push((key.clone(), *key == current));
+        }
+        bits
+    }
+
+    // Associated function instead of method to avoid "cannot mutate self twice". 
+    fn bit_name (mapping: &Mapping, name: &String, value: &Value) -> String {
+        match &mapping {
+            Mapping::Recode => {
+                Self::name_from_value(name, value)
+            },
+            Mapping::Cluster { clusters } => {
+                if let Some(range) = Self::get_range(value, clusters) {
+                    return Self::name_from_range(name, range);
+                }
+                name.to_owned() + "|Other"
+            }
+        }
+    }
+
+    // Associated function instead of method to avoid "cannot mutate self twice". 
+    fn name_from_value (name: &String, value: &Value) -> String {
+        name.to_owned() + "|" + &value.to_string()
+    }
+
+    // Associated function instead of method to avoid "cannot mutate self twice". 
+    fn name_from_range (name: &String, range: &Range) -> String {
+        name.to_owned() + "|" + &range.lower.to_string() + "|" + &range.upper.to_string()
+    }
+
+    // Associated function instead of method to avoid "cannot mutate self twice". 
+    fn get_range<'a> (value: &Value, clusters: &'a [Range]) -> Option<&'a Range> {
+        clusters.iter().find(|&cluster| cluster.lower != Value::None && *value >= cluster.lower && *value <= cluster.upper)
+    }
+
+    // Associated function instead of method to avoid "cannot mutate self twice". 
+    fn recalculate (histogram: &mut Histogram, mapping: &Mapping, name: &String, value: &Value) {
+        if *value == Value::None {
+            histogram.missing += 1;
+        } else {
+            *histogram.density.entry(Self::bit_name(mapping, name, value)).or_insert(0) += 1;
+        }
+        if  histogram.minimum == Value::None || histogram.minimum > *value {
+            histogram.minimum = value.clone();
+        }
+        if  histogram.maximum == Value::None || histogram.maximum < *value {
+            histogram.maximum = value.clone();
+        }
+    }
+
 }
+
