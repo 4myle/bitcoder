@@ -412,7 +412,7 @@ impl App for Bitcoder
     fn save (&mut self, storage: &mut dyn eframe::Storage) {
         eframe::set_value(storage, eframe::APP_KEY, self);
         if !self.path.is_empty() {
-            if let Some(stem) = std::path::PathBuf::from(&self.path).file_stem() {
+            if let Some(stem) = std::path::PathBuf::from(&self.path).file_name() {
                 if let Some(name) = stem.to_str() {
                     eframe::set_value(storage, name, &self.cards);
                 }
