@@ -369,8 +369,8 @@ impl Bitcoder
             self.outcome = variable;
             self.outcome.as_numbers();
         }
-        if let Some(stem) = std::path::PathBuf::from(&self.path).file_stem() {
-            if let Some(name) = stem.to_str() {
+        if let Some(name) = std::path::PathBuf::from(&self.path).file_name() {
+            if let Some(name) = name.to_str() {
                 self.cards = eframe::get_value(storage, name).unwrap_or_default();
                 self.cards.iter_mut().enumerate().for_each(|c| {
                     if c.1.title != self.variables[c.0].name() {
@@ -412,8 +412,8 @@ impl App for Bitcoder
     fn save (&mut self, storage: &mut dyn eframe::Storage) {
         eframe::set_value(storage, eframe::APP_KEY, self);
         if !self.path.is_empty() {
-            if let Some(stem) = std::path::PathBuf::from(&self.path).file_name() {
-                if let Some(name) = stem.to_str() {
+            if let Some(name) = std::path::PathBuf::from(&self.path).file_name() {
+                if let Some(name) = name.to_str() {
                     eframe::set_value(storage, name, &self.cards);
                 }
             }
