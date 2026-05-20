@@ -1,10 +1,15 @@
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
 
-use eframe::egui::{self, Color32};
 use eframe:: { 
+    egui,
     App, 
     Frame
+};
+
+use eframe::egui::{
+    Color32, 
+    Panel
 };
 
 mod widgets;
@@ -167,7 +172,7 @@ impl Bitcoder
         visuals.selection.stroke.color  = ACCENT_COLOR; 
         visuals.selection.bg_fill = ACCENT_COLOR.gamma_multiply(0.30);
         // visuals.slider_trailing_fill = true;
-        context.style_mut(|style| {
+        context.global_style_mut(|style| {
             style.spacing.item_spacing = egui::Vec2::new(12.0, 8.0);
             style.spacing.button_padding = egui::Vec2::new(8.0, 4.0);
         });
@@ -301,7 +306,7 @@ impl Bitcoder
         }
     }
 
-    fn ui_outcome (&mut self, ui: &mut egui::Ui, context: &egui::Context) {
+    fn ui_outcome (&mut self, ui: &mut egui::Ui) {
         ui.vertical(|ui| {
             ui.label(egui::RichText::new("OUTCOME VARIABLE:").small().weak());
             ui.label(egui::RichText::new(self.outcome.name()).heading().color(ACCENT_COLOR));
@@ -318,9 +323,9 @@ impl Bitcoder
             if  dragger.drag_started() {
                 self.state = StateTracker::Dragging;
             }
-            let outside = !context.screen_rect().contains(ui.input(|i| i.pointer.interact_pos()).unwrap_or_default());
+            let outside = !ui.ctx().content_rect().contains(ui.input(|i| i.pointer.interact_pos()).unwrap_or_default());
             if  dragger.drag_stopped() {
-                context.set_cursor_icon(egui::CursorIcon::Default);
+                ui.ctx().set_cursor_icon(egui::CursorIcon::Default);
                 self.state = StateTracker::Idle;
                 if outside {
                     // thread::spawn(|| { // Should be this easy (nogo Rust).
@@ -329,17 +334,17 @@ impl Bitcoder
                 }
             }
             if self.state == StateTracker::Dragging {
-                context.set_cursor_icon(if outside { egui::CursorIcon::Grabbing } else { egui::CursorIcon::NoDrop });
+                ui.ctx().set_cursor_icon(if outside { egui::CursorIcon::Grabbing } else { egui::CursorIcon::NoDrop });
             }
         });
     }
 
-    fn ui_settings (&mut self, ui: &mut egui::Ui, context: &egui::Context) {
+    fn ui_settings (&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
             ui.vertical(|ui| {
                 ui.label(egui::RichText::new("TEXT SIZE").small().weak());
                 if ui.add(egui::Slider::new(&mut self.ui_size, 1.0..=1.7)).changed() {
-                    context.set_zoom_factor(self.ui_size);
+                    ui.ctx().set_zoom_factor(self.ui_size);
                 }
             });
             ui.add_space(24.0);
@@ -369,29 +374,27 @@ impl Bitcoder
             self.outcome = variable;
             self.outcome.as_numbers();
         }
-        if let Some(name) = std::path::PathBuf::from(&self.path).file_name() {
-            if let Some(name) = name.to_str() {
-                self.cards = eframe::get_value(storage, name).unwrap_or_default();
-                self.cards.iter_mut().enumerate().for_each(|c| {
-                    if c.1.title != self.variables[c.0].name() {
-                        self.variables[c.0].set_name(&c.1.title);
-                    }
-                    if c.1.is_numeric {
-                        self.variables[c.0].as_numbers();
-                    }
-                    if !c.1.expression.is_empty() {
-                        match Parser::parse(&c.1.expression) {
-                            Err(m) => c.1.message = m,
-                            Ok (t) => {
-                                match self.variables[c.0].use_ranges(&t) {
-                                    Err(m)  => c.1.message = m.to_string(),
-                                    Ok (()) => c.1.message.clear()
-                                }
+        if let Some(name) = std::path::PathBuf::from(&self.path).file_name() && let Some(name) = name.to_str() {
+            self.cards = eframe::get_value(storage, name).unwrap_or_default();
+            self.cards.iter_mut().enumerate().for_each(|c| {
+                if c.1.title != self.variables[c.0].name() {
+                    self.variables[c.0].set_name(&c.1.title);
+                }
+                if c.1.is_numeric {
+                    self.variables[c.0].as_numbers();
+                }
+                if !c.1.expression.is_empty() {
+                    match Parser::parse(&c.1.expression) {
+                        Err(m) => c.1.message = m,
+                        Ok (t) => {
+                            match self.variables[c.0].use_ranges(&t) {
+                                Err(m)  => c.1.message = m.to_string(),
+                                Ok (()) => c.1.message.clear()
                             }
                         }
                     }
-                });
-            }
+                }
+            });
         }
         // Fill rest of cards collection, or all if none was deserialized.
         for index in self.cards.len()..self.variables.len() {
@@ -411,25 +414,21 @@ impl App for Bitcoder
 {
     fn save (&mut self, storage: &mut dyn eframe::Storage) {
         eframe::set_value(storage, eframe::APP_KEY, self);
-        if !self.path.is_empty() {
-            if let Some(name) = std::path::PathBuf::from(&self.path).file_name() {
-                if let Some(name) = name.to_str() {
-                    eframe::set_value(storage, name, &self.cards);
-                }
-            }
+        if !self.path.is_empty() && let Some(name) = std::path::PathBuf::from(&self.path).file_name() && let Some(name) = name.to_str() {
+            eframe::set_value(storage, name, &self.cards);
         }
     }
 
-    fn update (&mut self, context: &egui::Context, frame: &mut Frame) {
-        egui::TopBottomPanel::bottom("Settings").frame(self.get_main_frame()).resizable(false).show(context, |ui| {
-            self.ui_settings(ui, context);
+    fn ui (&mut self, ui: &mut egui::Ui, frame: &mut Frame) {
+        Panel::bottom("Settings").frame(self.get_main_frame()).resizable(false).show_inside(ui, |ui| {
+            self.ui_settings(ui);
         });
         if !self.variables.is_empty() {
-            egui::TopBottomPanel::bottom("Variable").frame(self.get_main_frame()).resizable(false).show(context, |ui| {
-                self.ui_outcome(ui, context);
+            egui::Panel::bottom("Variable").frame(self.get_main_frame()).resizable(false).show_inside(ui, |ui| {
+                self.ui_outcome(ui);
             });
         }
-        egui::CentralPanel::default().frame(self.get_main_frame()).show(context, |ui| {
+        egui::CentralPanel::default().frame(self.get_main_frame()).show_inside(ui, |ui| {
             if !self.error.is_empty() {
                 egui::Modal::new(egui::Id::new("Dialog")).frame(self.get_over_frame()).show(ui.ctx(), |ui| {
                     ui.set_width(240.0);
@@ -443,7 +442,7 @@ impl App for Bitcoder
             }
             let mut hovered = egui::HoveredFile::default();
             let mut dropped = egui::DroppedFile::default();
-            context.input(|input| {
+            ui.ctx().input(|input| {
                 if !input.raw.hovered_files.is_empty() { hovered = input.raw.hovered_files[0].clone() }
                 if !input.raw.dropped_files.is_empty() { dropped = input.raw.dropped_files[0].clone() }
             });
@@ -456,11 +455,9 @@ impl App for Bitcoder
                     egui::StrokeKind::Middle
                 );
             }
-            if dropped.path.is_some() {
-                if let Some(path) = &dropped.path {
-                    self.path = path.display().to_string();
-                    self.load_file(Option::unwrap(frame.storage()));
-                }
+            if dropped.path.is_some() && let Some(path) = &dropped.path {
+                self.path = path.display().to_string();
+                self.load_file(Option::unwrap(frame.storage()));
             }
             if self.variables.is_empty() {
                 ui.add_sized(ui.available_size(), egui::Label::new(egui::RichText::new("(drop file here)").heading().italics().weak()));

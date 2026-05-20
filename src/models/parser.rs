@@ -168,10 +168,8 @@ impl Parser
                 },
                 _ => {
                     token.push(character);
-                    if let Some(preview) = input.peek() {
-                        if *preview == ',' {
-                            break;
-                        }
+                    if let Some(preview) = input.peek() && *preview == ',' {
+                        break;
                     }
                 }
             }
