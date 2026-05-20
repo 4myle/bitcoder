@@ -1,5 +1,4 @@
 # Bitcoder
-
 Bit string file creation by categorizing value-based text data. 
 User interface made with [egui](https://github.com/emilk/egui).
 
