@@ -10,10 +10,12 @@ use std::io::{
     BufReader
 };
 
+#[allow(clippy::unwrap_used)]
 static SPLITTER: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
-    Result::unwrap(regex::Regex::new(r#""[^"]*"|[^,]*"#)) // Pre-compiling for performance.
+    // Pre-compiling for performance.
+    regex::Regex::new(r#""[^"]*"|[^,]*"#).unwrap()
 });
-
+    
 pub struct Decoder;
 impl Decoder 
 {

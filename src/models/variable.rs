@@ -204,7 +204,7 @@ impl Variable
             if range.lower > range.upper {
                 return Err("Lower value must be less than or equal to the upper value.")
             }
-            if !ranges.is_empty() && range.lower < Option::unwrap(ranges.last()).upper {
+            if !ranges.is_empty() && range.lower < ranges.last().unwrap_or(&Range::default()).upper {
                 return Err("Lower value must be greater than or equal to the previous upper value.")
             }
             ranges.push(range);

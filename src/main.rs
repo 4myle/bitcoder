@@ -64,11 +64,13 @@ impl Card
 }
 
 // Extract only message from an Result error by adding a new trait to Result (go Rust!).
-trait MessageOnly {
+trait MessageOnly 
+{
     fn as_message (&self) -> String;
 }
 
-impl <T,E> MessageOnly for Result<T,E> where E: ToString {
+impl <T,E> MessageOnly for Result<T,E> where E: ToString 
+{
     fn as_message (&self) -> String {
         match self {
             Ok  (_) => String::new(),
@@ -366,7 +368,7 @@ impl Bitcoder
         });
     }
 
-    fn load_file (&mut self, storage: &dyn eframe::Storage) {
+    fn load_file (&mut self, storage: Option<&dyn eframe::Storage>) {
         self.error = Decoder::load(self.path.as_str(), &mut self.variables, &mut self.rows).as_message();
         self.cards = Vec::with_capacity(self.variables.len());
         // Last variable is the outcome variable (interpretable as an f32).
@@ -374,7 +376,7 @@ impl Bitcoder
             self.outcome = variable;
             self.outcome.as_numbers();
         }
-        if let Some(name) = std::path::PathBuf::from(&self.path).file_name() && let Some(name) = name.to_str() {
+        if let Some(name) = std::path::PathBuf::from(&self.path).file_name() && let Some(name) = name.to_str() && let Some(storage) = storage {
             self.cards = eframe::get_value(storage, name).unwrap_or_default();
             self.cards.iter_mut().enumerate().for_each(|c| {
                 if c.1.title != self.variables[c.0].name() {
@@ -420,15 +422,15 @@ impl App for Bitcoder
     }
 
     fn ui (&mut self, ui: &mut egui::Ui, frame: &mut Frame) {
-        Panel::bottom("Settings").frame(self.get_main_frame()).resizable(false).show_inside(ui, |ui| {
+        Panel::bottom("Settings").frame(self.get_main_frame()).resizable(false).show(ui, |ui| {
             self.ui_settings(ui);
         });
         if !self.variables.is_empty() {
-            egui::Panel::bottom("Variable").frame(self.get_main_frame()).resizable(false).show_inside(ui, |ui| {
+            egui::Panel::bottom("Variable").frame(self.get_main_frame()).resizable(false).show(ui, |ui| {
                 self.ui_outcome(ui);
             });
         }
-        egui::CentralPanel::default().frame(self.get_main_frame()).show_inside(ui, |ui| {
+        egui::CentralPanel::default().frame(self.get_main_frame()).show(ui, |ui| {
             if !self.error.is_empty() {
                 egui::Modal::new(egui::Id::new("Dialog")).frame(self.get_over_frame()).show(ui.ctx(), |ui| {
                     ui.set_width(240.0);
@@ -457,7 +459,7 @@ impl App for Bitcoder
             }
             if dropped.path.is_some() && let Some(path) = &dropped.path {
                 self.path = path.display().to_string();
-                self.load_file(Option::unwrap(frame.storage()));
+                self.load_file(frame.storage());
             }
             if self.variables.is_empty() {
                 ui.add_sized(ui.available_size(), egui::Label::new(egui::RichText::new("(drop file here)").heading().italics().weak()));

@@ -2,14 +2,14 @@
 description = "Bit string file creation by categorizing value-based text data."
 name = "bitcoder"
 authors = ["Roger Salomonsson <medicorab@gmail.com>"]
-version = "1.0.14"
+version = "1.0.15"
 edition = "2024"
 
 [dependencies]
-eframe = { version = "0.34.2", default-features = false, features = ["glow", "persistence"] }
+eframe = { version = "0.35.0", default-features = false, features = ["glow", "persistence"] }
 # egui_extras = "0.31.1"
-serde  = "1.0.228"
-regex  = "1.12.3"
+serde  = "1.0.229"
+regex  = "1.13.1"
 dirs = "6.0.0"
 
 [build-dependencies]
@@ -33,12 +33,9 @@ panic = "abort"
 strip = "symbols"
 
 [lints.rust]
-unsafe_code = "deny"
+unsafe_code = "forbid"
 
-[workspace.lints.rust]
-unsafe_code = "deny"
-
-[workspace.lints.clippy]
+[lints.clippy]
 pedantic = "deny"
 unwrap_used = "deny"
 expect_used = "deny"
